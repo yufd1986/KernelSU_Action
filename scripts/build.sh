@@ -34,6 +34,12 @@ prepare_defconfig() {
 		sed -i 's/-no-integrated-as//g' "${KERNEL_DIR}/Makefile"
 	fi
 
+	# Fix MTK drvgen build: suppress missing dws for overlay dts and use python
+	if [ -f "${KERNEL_DIR}/scripts/drvgen/drvgen.mk" ]; then
+		sed -i 's/if \[ -f \$\$dws_path \]/if [ -n "$$base_prj" ] \&\& [ -f $$dws_path ]/' "${KERNEL_DIR}/scripts/drvgen/drvgen.mk"
+		sed -i 's/\$(python)/python/g' "${KERNEL_DIR}/scripts/drvgen/drvgen.mk"
+	fi
+
 	local kver
 	kver=$(kernel_version "$KERNEL_DIR" || echo "0.0")
 
@@ -139,15 +145,17 @@ build_kernel() {
 		info "ccache enabled (dir: ${CCACHE_DIR})"
 	fi
 
+	export PYTHON=python
+
 	cd "$KERNEL_DIR"
 	info "make ${args} ${KERNEL_CONFIG}"
 	# shellcheck disable=SC2086
 	make -j"$(nproc --all)" CC=clang $args "${KERNEL_CONFIG}" \
 		|| die "defconfig generation failed"
 
-	info "make ${args}"
+	info "make ${args} ${KERNEL_IMAGE_NAME:-}"
 	# shellcheck disable=SC2086
-	make -j"$(nproc --all)" CC="$cc" $args \
+	make -j"$(nproc --all)" CC="$cc" $args ${KERNEL_IMAGE_NAME:-} \
 		|| die "kernel build failed"
 
 	endgroup

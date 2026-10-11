@@ -98,7 +98,7 @@ permissions:
 jobs:
   build:
     name: Build ${{ inputs.config }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     timeout-minutes: 120
     outputs:
       device: ${{ steps.meta.outputs.device }}
@@ -155,14 +155,13 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update -qq
-          # Kept deliberately lean. The historical list here was copied from the
-          # full AOSP platform build docs and pulled in ~40 packages a kernel
-          # build never touches, several of which no longer exist on current
-          # Ubuntu (python2, lib32ncurses5-dev, ...).
           sudo apt-get install -y --no-install-recommends \
             bc bison build-essential ccache cpio curl device-tree-compiler flex \
-            git libelf-dev libssl-dev lz4 make python3 rsync unzip zip zstd \
+            git libelf-dev libssl-dev lz4 make python2 python3 rsync unzip zip zstd \
             libncurses-dev
+          sudo ln -sf /usr/bin/python2 /usr/bin/python
+          sudo ln -sf /usr/bin/python2 /usr/local/bin/python
+          python --version
           mkdir -p "$WORKSPACE"
 
       - name: Set up toolchain
