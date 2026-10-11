@@ -29,6 +29,11 @@ prepare_defconfig() {
 
 	cp "$DEFCONFIG_PATH" "${WORKSPACE}/defconfig.orig"
 
+	# Fix Makefile for modern Clang: remove -no-integrated-as
+	if [ -f "${KERNEL_DIR}/Makefile" ]; then
+		sed -i 's/-no-integrated-as//g' "${KERNEL_DIR}/Makefile"
+	fi
+
 	local kver
 	kver=$(kernel_version "$KERNEL_DIR" || echo "0.0")
 
