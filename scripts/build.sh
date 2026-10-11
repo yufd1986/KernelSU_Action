@@ -23,6 +23,10 @@ DEFCONFIG_PATH="${KERNEL_DIR}/arch/${ARCH}/configs/${KERNEL_CONFIG}"
 
 prepare_defconfig() {
 	group "Preparing defconfig"
+	if [ -f "${REPO_ROOT}/configs/${KERNEL_CONFIG}" ]; then
+		info "Using custom defconfig from configs/${KERNEL_CONFIG}"
+		cp "${REPO_ROOT}/configs/${KERNEL_CONFIG}" "$DEFCONFIG_PATH"
+	fi
 	[ -f "$DEFCONFIG_PATH" ] \
 		|| die "defconfig not found: arch/${ARCH}/configs/${KERNEL_CONFIG}
        Available: $(ls "${KERNEL_DIR}/arch/${ARCH}/configs/" | head -20 | tr '\n' ' ')"
@@ -79,6 +83,43 @@ EOF
 	local vdso_gtod="${KERNEL_DIR}/arch/arm64/kernel/vdso/gettimeofday.S"
 	if [ -f "$vdso_gtod" ]; then
 		sed -i 's/clock_gettime_return, shift=1/clock_gettime_return shift=1/g' "$vdso_gtod"
+	fi
+
+	# Add missing J22 panel revision 0C driver
+	local panel_dst="${KERNEL_DIR}/drivers/gpu/drm/panel"
+	if [ -d "$panel_dst" ] && [ -f "${REPO_ROOT}/patches/panel_j22_43_03_0c_vdo.c" ]; then
+		info "Installing J22 0C panel driver"
+		cp "${REPO_ROOT}/patches/panel_j22_43_03_0c_vdo.c" "${panel_dst}/"
+		if ! grep -q "CONFIG_DRM_PANEL_J22_43_03_0C_VDO" "${panel_dst}/Makefile"; then
+			echo 'obj-$(CONFIG_DRM_PANEL_J22_43_03_0C_VDO) += panel_j22_43_03_0c_vdo.o' >> "${panel_dst}/Makefile"
+		fi
+		if ! grep -q "DRM_PANEL_J22_43_03_0C_VDO" "${panel_dst}/Kconfig"; then
+			cat << 'EOF' >> "${panel_dst}/Kconfig"
+
+config DRM_PANEL_J22_43_03_0C_VDO
+	tristate "J22 43 03 0C video mode panel"
+	depends on OF
+	depends on DRM_PANEL
+	help
+	  Say Y here if you want to enable support for J22 43 03 0C VDO
+EOF
+		fi
+	fi
+
+	# Relax vermagic and symbol CRC checks to ensure all vendor proprietary modules load seamlessly
+	local mod_c="${KERNEL_DIR}/kernel/module.c"
+	if [ -f "$mod_c" ]; then
+		info "Bypassing module vermagic and CRC strict checks"
+		python3 -c "
+with open('$mod_c', 'r') as f:
+    s = f.read()
+s = s.replace('!same_magic(modmagic, vermagic, info->index.vers)', '0 /* same_magic bypass */')
+t2 = 'static int check_version(const struct load_info *info,\n\t\t\t const char *symname,\n\t\t\t struct module *mod,\n\t\t\t const s32 *crc)\n{'
+if t2 in s:
+    s = s.replace(t2, t2 + '\n\treturn 1;')
+with open('$mod_c', 'w') as f:
+    f.write(s)
+" || true
 	fi
 
 	local kver
@@ -139,6 +180,11 @@ EOF
 		kconf_set "$DEFCONFIG_PATH" CONFIG_LOCALVERSION "\"-${KERNEL_NAME}\""
 		if [ -f "${KERNEL_DIR}/scripts/setlocalversion" ]; then
 			sed -i 's/echo "\$res"/echo "\$res"/; s/-dirty//g' "${KERNEL_DIR}/scripts/setlocalversion"
+		fi
+	else
+		kconf_set "$DEFCONFIG_PATH" CONFIG_LOCALVERSION '""'
+		if [ -f "${KERNEL_DIR}/scripts/setlocalversion" ]; then
+			sed -i 's/echo "\$res"/echo "-g699d347"/; s/-dirty//g' "${KERNEL_DIR}/scripts/setlocalversion"
 		fi
 	fi
 
