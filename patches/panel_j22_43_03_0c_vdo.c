@@ -43,7 +43,7 @@
 #endif
 
 #ifdef CONFIG_MTK_ROUND_CORNER_SUPPORT
-#include "../mediatek_cannon/mtk_corner_pattern/mtk_data_hw_roundedpattern.h"
+#include "../mediatek/mtk_corner_pattern/mtk_data_hw_roundedpattern.h"
 #endif
 
 #include "panel.h"
