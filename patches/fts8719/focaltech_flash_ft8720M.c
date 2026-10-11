@@ -197,7 +197,7 @@ static int fts_dpram_write_pe(u32 saddr, const u8 *buf, u32 len, bool wpram)
         return -EINVAL;
     }
 
-    if ((len < FTS_MIN_LEN) || (len > FTS_MAX_LEN_APP)) {
+    if ((len < FTS_MIN_LEN) || (len > FTS_MAX_LEN_FILE)) {
         FTS_ERROR("fw length(%d) fail", len);
         return -EINVAL;
     }
@@ -284,7 +284,7 @@ static int fts_dpram_write(u32 saddr, const u8 *buf, u32 len, bool wpram)
         return -EINVAL;
     }
 
-    if ((len < FTS_MIN_LEN) || (len > FTS_MAX_LEN_APP)) {
+    if ((len < FTS_MIN_LEN) || (len > FTS_MAX_LEN_FILE)) {
         FTS_ERROR("fw length(%d) fail", len);
         return -EINVAL;
     }
