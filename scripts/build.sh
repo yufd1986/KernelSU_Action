@@ -29,10 +29,13 @@ prepare_defconfig() {
 
 	cp "$DEFCONFIG_PATH" "${WORKSPACE}/defconfig.orig"
 
-	# Fix Makefile for modern GCC: add -fcommon to HOSTCFLAGS and -gdwarf-4 to KBUILD_CFLAGS
+	# Disable -Werror across the entire tree so modern compiler warnings do not abort the build
+	find "${KERNEL_DIR}" -type f \( -name "Makefile*" -o -name "Kbuild*" \) -exec sed -i 's/-Werror\b//g' {} + 2>/dev/null || true
+
+	# Fix Makefile for modern GCC: add -fcommon to HOSTCFLAGS, -gdwarf-4 and -Wno-error to KBUILD_CFLAGS
 	if [ -f "${KERNEL_DIR}/Makefile" ]; then
 		sed -i 's/HOSTCFLAGS   :=/HOSTCFLAGS   := -fcommon /' "${KERNEL_DIR}/Makefile"
-		sed -i 's/KBUILD_CFLAGS   :=/KBUILD_CFLAGS   := -gdwarf-4 /' "${KERNEL_DIR}/Makefile"
+		sed -i 's/KBUILD_CFLAGS   :=/KBUILD_CFLAGS   := -gdwarf-4 -Wno-error /' "${KERNEL_DIR}/Makefile"
 	fi
 
 	# Fix MTK drvgen build: suppress missing dws for overlay dts and use python
