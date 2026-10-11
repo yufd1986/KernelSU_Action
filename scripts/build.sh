@@ -40,6 +40,14 @@ prepare_defconfig() {
 		sed -i 's/\$(python)/python/g' "${KERNEL_DIR}/scripts/drvgen/drvgen.mk"
 	fi
 
+	# Fix dtc yylloc multiple definition under GCC 10+
+	if [ -f "${KERNEL_DIR}/scripts/dtc/dtc-lexer.l" ]; then
+		sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/' "${KERNEL_DIR}/scripts/dtc/dtc-lexer.l"
+	fi
+	if [ -f "${KERNEL_DIR}/scripts/dtc/dtc-lexer.lex.c_shipped" ]; then
+		sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/' "${KERNEL_DIR}/scripts/dtc/dtc-lexer.lex.c_shipped"
+	fi
+
 	local kver
 	kver=$(kernel_version "$KERNEL_DIR" || echo "0.0")
 
@@ -106,7 +114,7 @@ prepare_defconfig() {
 # ----------------------------------------------------------------- build ---
 
 make_args() {
-	printf '%s' "O=out ARCH=${ARCH}"
+	printf '%s' "O=out ARCH=${ARCH} HOST_EXTRACFLAGS=-fcommon"
 	[ -n "${CUSTOM_CMDS:-}" ] && printf ' %s' "$CUSTOM_CMDS"
 	[ -n "${EXTRA_CMDS:-}"  ] && printf ' %s' "$EXTRA_CMDS"
 	[ -n "${GCC_64:-}"      ] && printf ' %s' "$GCC_64"
@@ -146,6 +154,7 @@ build_kernel() {
 	fi
 
 	export PYTHON=python
+	export HOST_EXTRACFLAGS="-fcommon"
 
 	cd "$KERNEL_DIR"
 	info "make ${args} ${KERNEL_CONFIG}"
