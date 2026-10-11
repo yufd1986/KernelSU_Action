@@ -33,10 +33,32 @@ prepare_defconfig() {
 	find "${KERNEL_DIR}" -type f \( -name "Makefile*" -o -name "Kbuild*" \) -exec sed -i 's/[[:space:]]-Werror[[:space:]]/ /g; s/[[:space:]]-Werror$/ /g' {} + 2>/dev/null || true
 	[ -f "${KERNEL_DIR}/mm/Makefile" ] && sed -i 's/-Werror//g' "${KERNEL_DIR}/mm/Makefile"
 
-	# Fix Makefile for modern GCC & Clang: add -fcommon to HOSTCFLAGS, -gdwarf-4 and -Wno-unused-but-set-variable to KBUILD_CFLAGS
+	# Fix Makefile for modern GCC & Clang: add -fcommon to HOSTCFLAGS, -gdwarf-4, -Wno-unused-but-set-variable, -fno-builtin-stpcpy to KBUILD_CFLAGS
 	if [ -f "${KERNEL_DIR}/Makefile" ]; then
 		sed -i 's/HOSTCFLAGS   :=/HOSTCFLAGS   := -fcommon /' "${KERNEL_DIR}/Makefile"
-		sed -i 's/KBUILD_CFLAGS   :=/KBUILD_CFLAGS   := -gdwarf-4 -Wno-unused-but-set-variable /' "${KERNEL_DIR}/Makefile"
+		sed -i 's/KBUILD_CFLAGS   :=/KBUILD_CFLAGS   := -gdwarf-4 -Wno-unused-but-set-variable -fno-builtin-stpcpy /' "${KERNEL_DIR}/Makefile"
+	fi
+
+	# Fix stpcpy for Clang: add implementation to lib/string.c and declaration to include/linux/string.h if missing
+	local string_c="${KERNEL_DIR}/lib/string.c"
+	if [ -f "$string_c" ] && ! grep -q "char \*stpcpy(" "$string_c"; then
+		cat << 'EOF' >> "$string_c"
+
+#ifndef __HAVE_ARCH_STPCPY
+char *stpcpy(char *dest, const char *src)
+{
+	while ((*dest++ = *src++) != '\0')
+		/* nothing */;
+	return --dest;
+}
+EXPORT_SYMBOL(stpcpy);
+#endif
+EOF
+	fi
+
+	local string_h="${KERNEL_DIR}/include/linux/string.h"
+	if [ -f "$string_h" ] && ! grep -q "stpcpy(" "$string_h"; then
+		sed -i '/extern char \* strcpy/a extern char *stpcpy(char *, const char *);' "$string_h" || true
 	fi
 
 	# Fix MTK drvgen build: suppress missing dws for overlay dts and use python
@@ -85,6 +107,8 @@ prepare_defconfig() {
 	if is_true "${ADD_KPROBES_CONFIG:-false}"; then
 		kconf_set_many "$DEFCONFIG_PATH" \
 			CONFIG_MODULES=y CONFIG_KPROBES=y CONFIG_HAVE_KPROBES=y CONFIG_KPROBE_EVENTS=y
+	elif [ "${KSU_HOOK_MODE_RESOLVED:-}" = "manual" ]; then
+		kconf_disable "$DEFCONFIG_PATH" CONFIG_KPROBES
 	fi
 
 	if is_true "${DISABLE_LTO:-false}"; then

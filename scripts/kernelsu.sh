@@ -168,6 +168,38 @@ ksu_install() {
 	fi
 	ok "${name} installed at ${head_desc} (${head_sha})"
 
+	# Ensure manual hook boolean symbols are always defined in ksud.c regardless of CONFIG_KPROBES
+	local ksud_c="${ksu_dir}/kernel/ksud.c"
+	if [ -f "$ksud_c" ]; then
+		python3 -c "
+import os
+path = '$ksud_c'
+if os.path.exists(path):
+    with open(path, 'r') as f:
+        s = f.read()
+    old_part = '''#ifdef CONFIG_KPROBES
+static struct work_struct stop_vfs_read_work;
+static struct work_struct stop_execve_hook_work;
+static struct work_struct stop_input_hook_work;
+#else
+bool ksu_vfs_read_hook __read_mostly = true;
+bool ksu_execveat_hook __read_mostly = true;
+bool ksu_input_hook __read_mostly = true;
+#endif'''
+    new_part = '''bool ksu_vfs_read_hook __read_mostly = true;
+bool ksu_execveat_hook __read_mostly = true;
+bool ksu_input_hook __read_mostly = true;
+#ifdef CONFIG_KPROBES
+static struct work_struct stop_vfs_read_work;
+static struct work_struct stop_execve_hook_work;
+static struct work_struct stop_input_hook_work;
+#endif'''
+    if old_part in s:
+        with open(path, 'w') as f:
+            f.write(s.replace(old_part, new_part))
+" || true
+	fi
+
 	# --- publish facts the later steps need --------------------------------
 	local count version_label
 	count=$(git -C "$ksu_dir" rev-list --count HEAD 2>/dev/null || echo 0)
