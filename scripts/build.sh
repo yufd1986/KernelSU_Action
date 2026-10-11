@@ -29,13 +29,14 @@ prepare_defconfig() {
 
 	cp "$DEFCONFIG_PATH" "${WORKSPACE}/defconfig.orig"
 
-	# Disable -Werror across the entire tree so modern compiler warnings do not abort the build
-	find "${KERNEL_DIR}" -type f \( -name "Makefile*" -o -name "Kbuild*" \) -exec sed -i 's/-Werror\b//g' {} + 2>/dev/null || true
+	# Disable standalone -Werror in subdirectories without corrupting flags like -Werror-implicit-function-declaration
+	find "${KERNEL_DIR}" -type f \( -name "Makefile*" -o -name "Kbuild*" \) -exec sed -i 's/[[:space:]]-Werror[[:space:]]/ /g; s/[[:space:]]-Werror$/ /g' {} + 2>/dev/null || true
+	[ -f "${KERNEL_DIR}/mm/Makefile" ] && sed -i 's/-Werror//g' "${KERNEL_DIR}/mm/Makefile"
 
-	# Fix Makefile for modern GCC: add -fcommon to HOSTCFLAGS, -gdwarf-4 and -Wno-error to KBUILD_CFLAGS
+	# Fix Makefile for modern GCC & Clang: add -fcommon to HOSTCFLAGS, -gdwarf-4 and -Wno-unused-but-set-variable to KBUILD_CFLAGS
 	if [ -f "${KERNEL_DIR}/Makefile" ]; then
 		sed -i 's/HOSTCFLAGS   :=/HOSTCFLAGS   := -fcommon /' "${KERNEL_DIR}/Makefile"
-		sed -i 's/KBUILD_CFLAGS   :=/KBUILD_CFLAGS   := -gdwarf-4 -Wno-error /' "${KERNEL_DIR}/Makefile"
+		sed -i 's/KBUILD_CFLAGS   :=/KBUILD_CFLAGS   := -gdwarf-4 -Wno-unused-but-set-variable /' "${KERNEL_DIR}/Makefile"
 	fi
 
 	# Fix MTK drvgen build: suppress missing dws for overlay dts and use python
