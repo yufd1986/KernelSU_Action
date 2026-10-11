@@ -106,6 +106,13 @@ EOF
 		fi
 	fi
 
+	# Replace fts8719 touch driver with updated version supporting FT8720M / Panel 0C
+	local fts_dst="${KERNEL_DIR}/drivers/input/touchscreen/fts8719"
+	if [ -d "$fts_dst" ] && [ -d "${REPO_ROOT}/patches/fts8719" ]; then
+		info "Installing updated fts8719 touch driver (FT8720M support)"
+		cp -r "${REPO_ROOT}/patches/fts8719/"* "${fts_dst}/"
+	fi
+
 	# Relax vermagic and symbol CRC checks to ensure all vendor proprietary modules load seamlessly
 	local mod_c="${KERNEL_DIR}/kernel/module.c"
 	if [ -f "$mod_c" ]; then
