@@ -275,7 +275,7 @@ int get_lockdown_info_for_ft8720(unsigned char* p_lockdown_info) {
 
 	pr_info("%s begin +\n", __func__);
 
-	ret = mtk_ddic_dsi_send_cmd(cmd_msg, true, false);
+	ret = mtk_ddic_dsi_send_cmd(cmd_msg, true);
 	if (ret != 0) {
 		pr_err("%s error\n", __func__);
 		goto DONE2;
@@ -554,7 +554,7 @@ static int lcm_whitepoint_xylv_get(struct drm_panel *panel) {
 
 	pr_info("%s begin +\n", __func__);
 
-	ret = mtk_ddic_dsi_send_cmd(cmd_msg, true, false);
+	ret = mtk_ddic_dsi_send_cmd(cmd_msg, true);
 	if (ret != 0) {
 		pr_err("%s error\n", __func__);
 		goto DONE2;
