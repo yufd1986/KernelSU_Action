@@ -29,9 +29,10 @@ prepare_defconfig() {
 
 	cp "$DEFCONFIG_PATH" "${WORKSPACE}/defconfig.orig"
 
-	# Fix Makefile for modern Clang: remove -no-integrated-as
+	# Fix Makefile for modern Clang and GCC: remove -no-integrated-as and add -fcommon to HOSTCFLAGS
 	if [ -f "${KERNEL_DIR}/Makefile" ]; then
 		sed -i 's/-no-integrated-as//g' "${KERNEL_DIR}/Makefile"
+		sed -i 's/HOSTCFLAGS   :=/HOSTCFLAGS   := -fcommon /' "${KERNEL_DIR}/Makefile"
 	fi
 
 	# Fix MTK drvgen build: suppress missing dws for overlay dts and use python
@@ -114,7 +115,7 @@ prepare_defconfig() {
 # ----------------------------------------------------------------- build ---
 
 make_args() {
-	printf '%s' "O=out ARCH=${ARCH} HOST_EXTRACFLAGS=-fcommon"
+	printf '%s' "O=out ARCH=${ARCH}"
 	[ -n "${CUSTOM_CMDS:-}" ] && printf ' %s' "$CUSTOM_CMDS"
 	[ -n "${EXTRA_CMDS:-}"  ] && printf ' %s' "$EXTRA_CMDS"
 	[ -n "${GCC_64:-}"      ] && printf ' %s' "$GCC_64"
@@ -154,7 +155,6 @@ build_kernel() {
 	fi
 
 	export PYTHON=python
-	export HOST_EXTRACFLAGS="-fcommon"
 
 	cd "$KERNEL_DIR"
 	info "make ${args} ${KERNEL_CONFIG}"
