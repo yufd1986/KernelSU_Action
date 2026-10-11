@@ -337,30 +337,12 @@ static int fts_write_v1(u8 *writebuf, u32 writelen)
 
 int fts_write(u8 *writebuf, u32 writelen)
 {
-	int ret = 0;
-
-	if (fts_data->ic_type == IC_TYPE_FT8719)
-		ret = fts_write_v1(writebuf, writelen);
-	else
-		ret = fts_write_v2(writebuf, writelen);
-
-	return ret;
+	return fts_write_v1(writebuf, writelen);
 }
 
 int fts_write_reg(u8 addr, u8 value)
 {
-	int ret = 0;
-	u8 writebuf[2] = { 0 };
-
-	if (fts_data->ic_type == IC_TYPE_FT8719)
-		ret =  fts_boot_write(&addr, 1, &value, 1);
-	else {
-		writebuf[0] = addr;
-		writebuf[1] = value;
-		ret = fts_write_v2(writebuf, 2);
-	}
-
-	return ret;
+	return fts_boot_write(&addr, 1, &value, 1);
 }
 
 static int fts_read_v1(u8 *cmd, u32 cmdlen, u8 *data, u32 datalen)
@@ -466,14 +448,7 @@ boot_read_err:
 
 int fts_read(u8 *cmd, u32 cmdlen, u8 *data, u32 datalen)
 {
-	int ret = 0;
-
-	if (fts_data->ic_type == IC_TYPE_FT8719)
-		ret = fts_read_v1(cmd, cmdlen, data, datalen);
-	else
-		ret = fts_read_v2(cmd, cmdlen, data, datalen);
-
-	return ret;
+	return fts_read_v1(cmd, cmdlen, data, datalen);
 }
 
 int fts_read_reg(u8 addr, u8 *value)
