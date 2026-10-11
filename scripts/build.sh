@@ -49,6 +49,12 @@ prepare_defconfig() {
 		sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/' "${KERNEL_DIR}/scripts/dtc/dtc-lexer.lex.c_shipped"
 	fi
 
+	# Fix VDSO gettimeofday.S macro comma syntax for modern assemblers
+	local vdso_gtod="${KERNEL_DIR}/arch/arm64/kernel/vdso/gettimeofday.S"
+	if [ -f "$vdso_gtod" ]; then
+		sed -i 's/clock_gettime_return, shift=1/clock_gettime_return shift=1/g' "$vdso_gtod"
+	fi
+
 	local kver
 	kver=$(kernel_version "$KERNEL_DIR" || echo "0.0")
 
