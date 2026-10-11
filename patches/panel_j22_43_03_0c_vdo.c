@@ -46,7 +46,17 @@
 #include "../mediatek/mtk_corner_pattern/mtk_data_hw_roundedpattern.h"
 #endif
 
-#include "panel.h"
+struct lcm {
+	struct device *dev;
+	struct drm_panel panel;
+	struct backlight_device *backlight;
+	struct gpio_desc *reset_gpio;
+
+	bool prepared;
+	bool enabled;
+
+	int error;
+};
 
 #include <linux/double_click.h>
 
