@@ -122,6 +122,10 @@ setup_gcc() {
 			"${WORKSPACE}/gcc-aarch64.tar.gz"
 		extract_archive "${WORKSPACE}/gcc-aarch64.tar.gz" "$GCC64_DIR"
 		export_env GCC_64 "CROSS_COMPILE=${GCC64_DIR}/bin/aarch64-linux-android-"
+		# Create aarch64-linux-gnu- symlinks so Clang --target=aarch64-linux-gnu can find GNU as/ld
+		for f in "${GCC64_DIR}/bin/aarch64-linux-android-"*; do
+			[ -f "$f" ] && ln -sf "$f" "${f/aarch64-linux-android-/aarch64-linux-gnu-}"
+		done
 		endgroup
 	fi
 
@@ -137,6 +141,10 @@ setup_gcc() {
 			"${WORKSPACE}/gcc-arm.tar.gz"
 		extract_archive "${WORKSPACE}/gcc-arm.tar.gz" "$GCC32_DIR"
 		export_env GCC_32 "CROSS_COMPILE_ARM32=${GCC32_DIR}/bin/arm-linux-androideabi-"
+		for f in "${GCC32_DIR}/bin/arm-linux-androideabi-"*; do
+			[ -f "$f" ] && ln -sf "$f" "${f/arm-linux-androideabi-/arm-linux-gnueabi-}"
+			[ -f "$f" ] && ln -sf "$f" "${f/arm-linux-androideabi-/arm-linux-gnueabihf-}"
+		done
 		endgroup
 	fi
 }

@@ -29,9 +29,8 @@ prepare_defconfig() {
 
 	cp "$DEFCONFIG_PATH" "${WORKSPACE}/defconfig.orig"
 
-	# Fix Makefile for modern Clang and GCC: remove -no-integrated-as and add -fcommon to HOSTCFLAGS
+	# Fix Makefile for modern GCC: add -fcommon to HOSTCFLAGS
 	if [ -f "${KERNEL_DIR}/Makefile" ]; then
-		sed -i 's/-no-integrated-as//g' "${KERNEL_DIR}/Makefile"
 		sed -i 's/HOSTCFLAGS   :=/HOSTCFLAGS   := -fcommon /' "${KERNEL_DIR}/Makefile"
 	fi
 

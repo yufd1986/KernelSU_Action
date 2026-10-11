@@ -158,7 +158,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             bc bison build-essential ccache cpio curl device-tree-compiler flex \
             git libelf-dev libssl-dev lz4 make python2 python3 rsync unzip zip zstd \
-            libncurses-dev
+            libncurses-dev binutils-aarch64-linux-gnu
           sudo ln -sf /usr/bin/python2 /usr/bin/python
           sudo ln -sf /usr/bin/python2 /usr/local/bin/python
           python --version
