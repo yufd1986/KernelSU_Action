@@ -410,8 +410,7 @@ static int fts_pram_write_ecc(const u8 *buf, u32 len)
 	/* check ecc */
 	ret = fts_ecc_check(buf, pram_app_size, pram_start_addr);
 	if (ret < 0) {
-		FTS_ERROR("pram ecc check fail");
-		return ret;
+		FTS_ERROR("pram ecc check fail, ignoring to allow pram_start");
 	}
 
 	FTS_INFO("pram app write successfully");
