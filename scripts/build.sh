@@ -14,6 +14,9 @@ WORKSPACE=${WORKSPACE:-$(cd "${KERNEL_DIR}/.." && pwd)}
 ARCH=${ARCH:-arm64}
 OUT="${KERNEL_DIR}/out"
 
+# Export toolchain directories into PATH so Clang's -no-integrated-as can locate GNU as/ld
+export PATH="${WORKSPACE}/clang/bin:${WORKSPACE}/gcc-64/bin:${WORKSPACE}/gcc-32/bin:${PATH}"
+
 DEFCONFIG_PATH="${KERNEL_DIR}/arch/${ARCH}/configs/${KERNEL_CONFIG}"
 
 # ------------------------------------------------------------- defconfig ---
@@ -105,7 +108,7 @@ make_args() {
 
 build_kernel() {
 	group "Building kernel"
-	export PATH="${CLANG_PATH:-}:${PATH}"
+	export PATH="${CLANG_PATH:-}:${WORKSPACE}/clang/bin:${WORKSPACE}/gcc-64/bin:${WORKSPACE}/gcc-32/bin:${PATH}"
 	export KBUILD_BUILD_HOST=${KBUILD_BUILD_HOST:-Github-Action}
 	export KBUILD_BUILD_USER=${KBUILD_BUILD_USER:-kernelsu-action}
 
