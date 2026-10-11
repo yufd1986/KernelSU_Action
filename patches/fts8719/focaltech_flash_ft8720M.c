@@ -65,7 +65,7 @@ struct upgrade_setting_nf upgrade_setting_list[] = {
     {0x87, 0x56, 0, (88 * 1024), 32766,        0xA5, 0x01, 8,  0, 1, 0, 1},
     {0x80, 0x09, 0, (88 * 1024), 32766,        0xA5, 0x01, 8,  0, 1, 0, 1},
     {0x86, 0x32, 0, (64 * 1024), (128 * 1024), 0xA5, 0x01, 12, 0, 0, 0, 0},
-    {0x87, 0x20, 0, (88 * 1024), (128 * 1024), 0xA5, 0x01, 8,  0, 1, 0, 1},
+    {0x87, 0x20, 0, (128 * 1024), (128 * 1024), 0xA5, 0x01, 8,  0, 1, 0, 1},
 };
 
 static int fts_check_bootid(void)
@@ -197,7 +197,7 @@ static int fts_dpram_write_pe(u32 saddr, const u8 *buf, u32 len, bool wpram)
         return -EINVAL;
     }
 
-    if ((len < FTS_MIN_LEN) || (len > upg->setting_nf->app2_offset)) {
+    if ((len < FTS_MIN_LEN) || (len > FTS_MAX_LEN_APP)) {
         FTS_ERROR("fw length(%d) fail", len);
         return -EINVAL;
     }
@@ -284,7 +284,7 @@ static int fts_dpram_write(u32 saddr, const u8 *buf, u32 len, bool wpram)
         return -EINVAL;
     }
 
-    if ((len < FTS_MIN_LEN) || (len > upg->setting_nf->app2_offset)) {
+    if ((len < FTS_MIN_LEN) || (len > FTS_MAX_LEN_APP)) {
         FTS_ERROR("fw length(%d) fail", len);
         return -EINVAL;
     }
@@ -568,6 +568,8 @@ static int fts_dram_write_ecc(const u8 *buf, u32 len)
                            + buf[FTS_APP_INFO_OFFSET + 1])) * 2;
 
     dram_buf = buf + pram_app_size;
+    if (len >= pram_app_size && dram_size > (len - pram_app_size))
+        dram_size = len - pram_app_size;
     FTS_INFO("dram buf length in fact:%d,offset:%d", dram_size, pram_app_size);
     /* write pram */
     ret = fts_dpram_write(dram_start_addr, dram_buf, dram_size, false);
