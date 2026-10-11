@@ -29,9 +29,10 @@ prepare_defconfig() {
 
 	cp "$DEFCONFIG_PATH" "${WORKSPACE}/defconfig.orig"
 
-	# Fix Makefile for modern GCC: add -fcommon to HOSTCFLAGS
+	# Fix Makefile for modern GCC: add -fcommon to HOSTCFLAGS and -gdwarf-4 to KBUILD_CFLAGS
 	if [ -f "${KERNEL_DIR}/Makefile" ]; then
 		sed -i 's/HOSTCFLAGS   :=/HOSTCFLAGS   := -fcommon /' "${KERNEL_DIR}/Makefile"
+		sed -i 's/KBUILD_CFLAGS   :=/KBUILD_CFLAGS   := -gdwarf-4 /' "${KERNEL_DIR}/Makefile"
 	fi
 
 	# Fix MTK drvgen build: suppress missing dws for overlay dts and use python
@@ -89,6 +90,7 @@ prepare_defconfig() {
 	fi
 
 	is_true "${DISABLE_CC_WERROR:-false}" && kconf_disable "$DEFCONFIG_PATH" CONFIG_CC_WERROR
+	kconf_disable "$DEFCONFIG_PATH" CONFIG_DEBUG_INFO
 
 	# Free-form extras: one CONFIG_x=y per line, or space separated.
 	if [ -n "${EXTRA_DEFCONFIG:-}" ]; then
