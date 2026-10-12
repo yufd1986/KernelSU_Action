@@ -287,9 +287,10 @@ int fts_read_v2(u8 *cmd, u32 cmdlen, u8 *data, u32 datalen)
     }
 
     if (ret < 0) {
-        FTS_ERROR("data read(addr:%x) %s,status:%x,ret:%d", cmd[0],
+        FTS_ERROR("data read(addr:%x) %s,status:%x,ret:%d,rx=[%02x %02x %02x %02x %02x %02x %02x %02x]", cmd[0],
                   (i >= SPI_RETRY_NUMBER) ? "crc abnormal" : "fail",
-                  rxbuf[3], ret);
+                  rxbuf[3], ret,
+                  rxbuf[0], rxbuf[1], rxbuf[2], rxbuf[3], rxbuf[4], rxbuf[5], rxbuf[6], rxbuf[7]);
     }
 
 err_read:

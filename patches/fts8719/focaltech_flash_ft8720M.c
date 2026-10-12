@@ -65,7 +65,7 @@ struct upgrade_setting_nf upgrade_setting_list[] = {
     {0x87, 0x56, 0, (88 * 1024), 32766,        0xA5, 0x01, 8,  0, 1, 0, 1},
     {0x80, 0x09, 0, (88 * 1024), 32766,        0xA5, 0x01, 8,  0, 1, 0, 1},
     {0x86, 0x32, 0, (64 * 1024), (128 * 1024), 0xA5, 0x01, 12, 0, 0, 0, 0},
-    {0x87, 0x20, 0, (128 * 1024), 32766,        0xA5, 0x01, 8,  0, 1, 0, 1},
+    {0x87, 0x20, 0, (88 * 1024),  (128 * 1024), 0xA5, 0x01, 8,  0, 1, 0, 1},
 };
 
 static int fts_check_bootid(void)
@@ -524,7 +524,8 @@ static int fts_pram_write_ecc(const u8 *buf, u32 len)
     /* check ecc */
     ret = fts_ecc_check(buf, pram_app_size, pram_start_addr);
     if (ret < 0) {
-        FTS_ERROR("pram ecc check fail, ignoring to allow pram_start");
+        FTS_ERROR("pram ecc check fail");
+        return ret;
     }
 
     FTS_INFO("pram app write successfully");
@@ -580,7 +581,8 @@ static int fts_dram_write_ecc(const u8 *buf, u32 len)
     /* check ecc */
     ret = fts_ecc_check(dram_buf, dram_size, dram_start_addr);
     if (ret < 0) {
-        FTS_ERROR("dram ecc check fail, ignoring to allow pram_start");
+        FTS_ERROR("dram ecc check fail");
+        return ret;
     }
 
     FTS_INFO("dram data write successfully");
@@ -599,6 +601,7 @@ static int fts_pram_start(void)
         return ret;
     }
 
+    msleep(20);
     return 0;
 }
 
