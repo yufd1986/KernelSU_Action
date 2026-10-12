@@ -142,6 +142,8 @@ static int rdata_check(u8 *rdata, u32 rlen)
 	crckermit(rdata, rlen - 2, &crc_calc);
 	crc_read = (u16)(rdata[rlen - 1] << 8) + rdata[rlen - 2];
 	if (crc_calc != crc_read) {
+		FTS_INFO("rdata_check crc mismatch: calc=0x%04x, read=0x%04x, len=%d",
+			 crc_calc, crc_read, rlen);
 		return -EIO;
 	}
 
@@ -153,15 +155,10 @@ static int fts_wait_idle(void)
 	int ret = 0;
 	int i = 0;
 	int status = 0xFF;
-	int idle_status = 0x01;
-	int status_mask = 0x81;
 	int retry_timeout = BUSY_QUERY_TIMEOUT;
 	u8 *txbuf = fts_data->bus_tx_buf;
 	u8 *rxbuf = fts_data->bus_rx_buf;
 	u32 txlen = 0;
-
-	if (!fts_data->fw_is_running)
-		idle_status = 0x00;
 
 	memset(txbuf, 0x00, SPI_BUF_LENGTH);
 	memset(rxbuf, 0x00, SPI_BUF_LENGTH);
@@ -172,7 +169,8 @@ static int fts_wait_idle(void)
 		ret = fts_spi_transfer(txbuf, rxbuf, txlen);
 		if (ret >= 0) {
 			status = (int)rxbuf[CD_PACKAGE_BUFLEN];
-			if ((status & status_mask) == idle_status) {
+			/* Bit 7 is SPI busy flag: 0 = idle/ready, 1 = busy */
+			if ((status & 0x80) == 0x00) {
 				break;
 			}
 		}
@@ -355,6 +353,9 @@ static int fts_read_v1(u8 *cmd, u32 cmdlen, u8 *data, u32 datalen)
 	u8 ctrl = READ_CMD;
 	u8 tmpcmd[FTX_MAX_COMMMAND_LENGTH] = { 0 };
 	u8 cmdaddr = -1;
+
+	if (!ts_data->fw_is_running)
+		ctrl = 0x80;
 
 	mutex_lock(&ts_data->bus_lock);
 	if (cmd && cmdlen) {
