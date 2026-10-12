@@ -90,6 +90,7 @@ static int fts_spi_transfer(u8 *tx_buf, u8 *rx_buf, u32 len)
         return ret;
     }
 
+    udelay(CS_HIGH_DELAY);
     return ret;
 }
 
@@ -120,6 +121,8 @@ static int rdata_check(u8 *rdata, u32 rlen)
     crckermit(rdata, rlen - 2, &crc_calc);
     crc_read = (u16)(rdata[rlen - 1] << 8) + rdata[rlen - 2];
     if (crc_calc != crc_read) {
+        FTS_INFO("rdata_check v2 crc mismatch: calc=0x%04x, read=0x%04x, len=%d",
+                 crc_calc, crc_read, rlen);
         return -EIO;
     }
 
@@ -219,6 +222,9 @@ int fts_read_v2(u8 *cmd, u32 cmdlen, u8 *data, u32 datalen)
     u32 txlen_need = datalen + SPI_HEADER_LENGTH + SPI_DUMMY_BYTE;
     u8 ctrl = READ_CMD;
     u32 dp = 0;
+
+    if (!ts_data->fw_is_running)
+        ctrl = 0x80;
 
     if (!cmd || !cmdlen || !data || !datalen) {
         FTS_ERROR("cmd/cmdlen/data/datalen is invalid");

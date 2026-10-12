@@ -321,8 +321,7 @@ static int fts_read_bootid(struct fts_ts_data *ts_data, u8 *id)
 	u32 id_cmd_len = 0;
 
 	id_cmd[0] = FTS_CMD_START1;
-	id_cmd[1] = FTS_CMD_START2;
-	ret = fts_write(id_cmd, 2);
+	ret = fts_write(id_cmd, 1);
 	if (ret < 0) {
 		FTS_ERROR("start cmd write fail");
 		return ret;
