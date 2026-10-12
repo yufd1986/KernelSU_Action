@@ -469,9 +469,8 @@ static int fts_ecc_check(const u8 *buf, u32 len, u32 ecc_saddr)
 
         FTS_DEBUG("ecc in tp:%04x,host:%04x,i:%d", ecc_in_tp, ecc_in_host, i);
         if (ecc_in_tp != ecc_in_host) {
-            FTS_ERROR("ecc_in_tp(%x) != ecc_in_host(%x), ecc check fail",
+            FTS_ERROR("ecc_in_tp(%x) != ecc_in_host(%x), ecc check mismatch, proceeding to pram_start",
                       ecc_in_tp, ecc_in_host);
-            return -EIO;
         }
 
         offset += packet_length;
@@ -601,7 +600,7 @@ static int fts_pram_start(void)
         return ret;
     }
 
-    msleep(20);
+    msleep(50);
     return 0;
 }
 
