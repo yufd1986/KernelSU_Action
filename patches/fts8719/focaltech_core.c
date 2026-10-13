@@ -1506,12 +1506,13 @@ static int fts_spi_init(struct fts_ts_data *ts_data)
 	struct spi_device *spi = ts_data->spi;
 
 	/*confirm TP IC in the module is FT8719 or FT8720M*/
-	if (fts_ic_type == 1)
+	if (fts_ic_type == 1) {
 		ic_type = IC_TYPE_FT8719;
-	else
+		spi->mode = SPI_MODE_1;
+	} else {
 		ic_type = IC_TYPE_FT8720M;
-
-	spi->mode = SPI_MODE_1;
+		spi->mode = SPI_MODE_0;
+	}
 	spi->bits_per_word = 8;
 	spi->max_speed_hz = ts_data->pdata->spi_max_freq;
 	if (spi->max_speed_hz > FTS_SPI_CLK_MAX)

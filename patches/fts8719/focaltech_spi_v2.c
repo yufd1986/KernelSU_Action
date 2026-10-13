@@ -223,9 +223,6 @@ int fts_read_v2(u8 *cmd, u32 cmdlen, u8 *data, u32 datalen)
     u8 ctrl = READ_CMD;
     u32 dp = 0;
 
-    if (!ts_data->fw_is_running)
-        ctrl = 0x80;
-
     if (!cmd || !cmdlen || !data || !datalen) {
         FTS_ERROR("cmd/cmdlen/data/datalen is invalid");
         return -EINVAL;
