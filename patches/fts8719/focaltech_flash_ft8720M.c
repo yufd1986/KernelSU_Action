@@ -270,10 +270,10 @@ static int fts_dpram_write(u32 saddr, const u8 *buf, u32 len, bool wpram)
     u32 remainder = 0;
     u32 packet_number = 0;
     u32 packet_len = 0;
-    u32 packet_size = FTS_FLASH_PACKET_LENGTH_SPI;
+    u32 packet_size = FTS_FLASH_PACKET_LENGTH_SPI_LOW;
     struct fts_upgrade *upg = fwupgrade;
 
-    FTS_INFO("dpram write");
+    FTS_INFO("dpram write: packet_size=%d, len=%d, wpram=%d", packet_size, len, wpram);
     if (!upg || !upg->ts_data || !upg->setting_nf) {
         FTS_ERROR("upgrade/ts_data/setting_nf is null");
         return -EINVAL;
@@ -320,6 +320,7 @@ static int fts_dpram_write(u32 saddr, const u8 *buf, u32 len, bool wpram)
             FTS_ERROR("set pram(%d) addr(%d) fail", i, addr);
             goto write_pram_err;
         }
+        udelay(200);
 
         /* write pram data */
         cmd[0] = FTS_ROMBOOT_CMD_WRITE;
@@ -331,6 +332,8 @@ static int fts_dpram_write(u32 saddr, const u8 *buf, u32 len, bool wpram)
             FTS_ERROR("write fw to pram(%d) fail", i);
             goto write_pram_err;
         }
+
+        mdelay(3);
     }
 
 write_pram_err:
@@ -467,10 +470,11 @@ static int fts_ecc_check(const u8 *buf, u32 len, u32 ecc_saddr)
             return ret;
         }
 
-        FTS_DEBUG("ecc in tp:%04x,host:%04x,i:%d", ecc_in_tp, ecc_in_host, i);
+        FTS_INFO("ecc in tp:%04x,host:%04x,i:%d", ecc_in_tp, ecc_in_host, i);
         if (ecc_in_tp != ecc_in_host) {
-            FTS_ERROR("ecc_in_tp(%x) != ecc_in_host(%x), ecc check mismatch, proceeding to pram_start",
+            FTS_ERROR("ecc_in_tp(%x) != ecc_in_host(%x), ecc check mismatch",
                       ecc_in_tp, ecc_in_host);
+            return -EIO;
         }
 
         offset += packet_length;
