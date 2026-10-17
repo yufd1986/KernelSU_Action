@@ -45,6 +45,8 @@
 #define FTS_READ_BOOT_ID_TIMEOUT                    3
 #define FTS_FLASH_PACKET_LENGTH_SPI_LOW             (4 * 1024 - 4)
 #define FTS_FLASH_PACKET_LENGTH_SPI                 (32 * 1024 - 16)
+/* Start of Bank1 (second 64KB bank) inside the FT8720M fw file */
+#define FTS_FW_BANK1_OFFSET                         0x10000
 
 /*****************************************************************************
 * Private enumerations, structures and unions using typedef
@@ -593,19 +595,39 @@ static int fts_dram_write_ecc(const u8 *buf, u32 len)
         dram_size = (u32)const_len;
 
     /*
-     * pram_app_size here is used only as offset into fw file buffer to find
-     * where DRAM data begins. For FT8720M (half_length=1), Bank0 code_len
-     * bytes are PRAM, Bank0 data ends at code_len offset in file.
-     * app2_offset (90112) marks start of Bank1 in file; DRAM follows PRAM.
-     * Use app2_offset as the file offset for DRAM data start.
+     * The FT8720M fw file is two 64KB banks:
+     *   Bank0 [0x00000..0x0FFFF] : PRAM code (code_len bytes) + 0xFF padding
+     *   Bank1 [0x10000..0x1FFFF] : DRAM const data, flash image at app2_offset
+     *
+     * The DRAM data therefore starts at the Bank1 base (0x10000), NOT at
+     * code_len: Bank0 pads from the end of the PRAM code up to the 64KB
+     * boundary with 0xFF (code_len is 61732 in the shipping image, so 3804
+     * bytes of padding sit in between). Reading DRAM from code_len pulls in
+     * that padding and shifts the real image out of place. The transfer still
+     * passes the ECC check -- host and chip agree on whatever bytes were sent
+     * -- but the app image is garbage, so pram_start never brings the chip up
+     * and the chip id reads back 0x00 ("TP Not Ready, ReadData = 0x0").
      */
     pram_app_size = (u32)(((u16)buf[FTS_APP_INFO_OFFSET + 0] << 8)
                           + buf[FTS_APP_INFO_OFFSET + 1]);
 
-    dram_buf = buf + pram_app_size;
-    if (len >= pram_app_size && dram_size > (len - pram_app_size))
-        dram_size = len - pram_app_size;
-    FTS_INFO("dram buf length in fact:%d,offset:%d", dram_size, pram_app_size);
+    if (upg->setting_nf->half_length) {
+        if (len <= FTS_FW_BANK1_OFFSET) {
+            FTS_ERROR("fw len(%d) too short for bank1 at 0x%x",
+                      len, FTS_FW_BANK1_OFFSET);
+            return -EINVAL;
+        }
+        dram_buf = buf + FTS_FW_BANK1_OFFSET;
+        if (dram_size > (len - FTS_FW_BANK1_OFFSET))
+            dram_size = len - FTS_FW_BANK1_OFFSET;
+        FTS_INFO("dram buf length in fact:%d, offset:0x%x (pram code_len:%d)",
+                 dram_size, FTS_FW_BANK1_OFFSET, pram_app_size);
+    } else {
+        dram_buf = buf + pram_app_size;
+        if (len >= pram_app_size && dram_size > (len - pram_app_size))
+            dram_size = len - pram_app_size;
+        FTS_INFO("dram buf length in fact:%d, offset:%d", dram_size, pram_app_size);
+    }
     /* write pram */
     ret = fts_dpram_write(dram_start_addr, dram_buf, dram_size, false);
     if (ret < 0) {
