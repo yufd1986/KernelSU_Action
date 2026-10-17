@@ -38,7 +38,6 @@
 #include <linux/of_device.h>
 #include <linux/of_gpio.h>
 #include <linux/of_irq.h>
-#include <linux/kernel.h>
 #if defined(CONFIG_FB)
 #define _DRM_NOTIFY_H_
 #ifdef _DRM_NOTIFY_H_
@@ -101,14 +100,12 @@
 struct fts_ts_data *fts_data;
 /* System must know the TP IC in the module, and set the variable fts_ic_type
  * in LCD driver.
- * TP driver will use this variable to distinguish FT8719 and FT8720M.
- * Value of the variable is the following:
- *    1: FT8719
- *    others (default 0): FT8720M
+ * TP driver will use this variable to distinguish FT8719 and FT8720.
+ * Value of the variable is the folowing:
+ *    1: FT8719(default)
+ *    others: FT8720M
  */
 static int fts_ic_type = 0;
-/* cmdline override: -1=auto (use LCM_name), 0=FT8720M, 1=FT8719 */
-static int fts_ic_type_force = -1;
 /*disable get_lockdown_info function*/
 extern int get_lockdown_info_for_focal(unsigned char* p_lockdown_info);
 
@@ -2478,13 +2475,6 @@ late_initcall(fts_ts_init);
 
 int __init is_lcm_detect(char *str)
 {
-	if (fts_ic_type_force >= 0) {
-		fts_ic_type = fts_ic_type_force;
-		printk("Func:%s LCM_name:%s ignored, fts.ic_type=%d forced\n",
-		       __func__, str, fts_ic_type);
-		return 0;
-	}
-
 	if (!(strcmp(str, "dsi_vdo_j22_43_03_0c_lcm_drv"))) {
 		fts_ic_type = 0;
 	} else if (!(strcmp(str, "dsi_vdo_j22_43_03_0b_lcm_drv"))) {
@@ -2494,30 +2484,6 @@ int __init is_lcm_detect(char *str)
 	return 0;
 }
 __setup("LCM_name=", is_lcm_detect);
-
-static int __init fts_ic_type_setup(char *str)
-{
-	int val;
-
-	if (!str || kstrtoint(str, 10, &val))
-		return 0;
-
-	if (val == 0) {
-		fts_ic_type_force = 0;
-		fts_ic_type = 0;
-	} else if (val == 1) {
-		fts_ic_type_force = 1;
-		fts_ic_type = 1;
-	} else {
-		printk(KERN_WARNING "fts.ic_type=%s invalid; use 0 (FT8720M) or 1 (FT8719)\n", str);
-		return 0;
-	}
-
-	printk(KERN_INFO "fts: IC type forced to %s by cmdline\n",
-	       val ? "FT8719" : "FT8720M");
-	return 1;
-}
-__setup("fts.ic_type=", fts_ic_type_setup);
 
 MODULE_AUTHOR("FocalTech Driver Team");
 MODULE_DESCRIPTION("FocalTech Touchscreen Driver");
