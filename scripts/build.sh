@@ -110,7 +110,10 @@ EOF
 	local fts_dst="${KERNEL_DIR}/drivers/input/touchscreen/fts8719"
 	if [ -d "$fts_dst" ] && [ -d "${REPO_ROOT}/patches/fts8719" ]; then
 		info "Installing updated fts8719 touch driver (FT8720M support)"
-		cp -r "${REPO_ROOT}/patches/fts8719/"* "${fts_dst}/"
+		# "src/." merges into the existing tree. Using "src/*" would nest
+		# subdirectories that already exist in the kernel (include/, 
+		# focaltech_test/) one level too deep instead of overwriting them.
+		cp -a "${REPO_ROOT}/patches/fts8719/." "${fts_dst}/"
 	fi
 
 	# Relax vermagic and symbol CRC checks to ensure all vendor proprietary modules load seamlessly

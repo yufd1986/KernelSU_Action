@@ -522,16 +522,17 @@ static int fts_pram_write_ecc(const u8 *buf, u32 len)
     }
 
     /*
-     * FT8720M: half_length=1 means the fw header code_len field only stores
-     * Bank 0 (lower 64KB) size. The full PRAM is 16-bit addressed (max 64KB).
-     * Writing code_len*2 bytes would cross the 64KB boundary and wrap around,
-     * overwriting Bank 0 with Bank 1 data and causing ECC mismatch (0x16ea).
-     * Fix: always write exactly code_len bytes (Bank 0 only) to PRAM.
-     * Bank 1 (above app2_offset in fw file) is stored in Flash, not PRAM.
+     * half_length (a.k.a. length_coefficient == 2) means the header lengths
+     * count 16-bit words, so the byte counts are twice the stored values.
+     * The stock driver logs "pram app length in fact:63996" for this panel,
+     * i.e. code_len 31998 * 2, and "dram ... 4904" = const_len 2452 * 2.
      */
-    pram_app_size = (u32)code_len;
-    FTS_INFO("pram app length(Bank0 only):%d (half_length=%d)",
-             pram_app_size, upg->setting_nf->half_length);
+    if (upg->setting_nf->half_length)
+        pram_app_size = (u32)code_len * 2;
+    else
+        pram_app_size = (u32)code_len;
+    FTS_INFO("pram app length in fact:%d (code_len:%d half_length=%d)",
+             pram_app_size, code_len, upg->setting_nf->half_length);
 
     /* Sanity: must not exceed 64KB PRAM address space */
     if (pram_app_size > 0x10000) {
@@ -560,7 +561,7 @@ static int fts_pram_write_ecc(const u8 *buf, u32 len)
     return 0;
 }
 
-static int fts_dram_write_ecc(const u8 *buf, u32 len, u32 fw_offset)
+static int fts_dram_write_ecc(const u8 *buf, u32 len)
 {
     int ret = 0;
     u32 dram_size = 0;
@@ -593,37 +594,27 @@ static int fts_dram_write_ecc(const u8 *buf, u32 len, u32 fw_offset)
         dram_size = (u32)const_len;
 
     /*
-     * code_len is only needed for the log message below: it is NOT where the
-     * DRAM block lives (see the offset discussion further down).
+     * The DRAM const block sits immediately after the PRAM code, so its file
+     * offset is exactly the (coefficient-scaled) PRAM length.  The stock
+     * driver logs "dram buf length in fact:4904,offset:63996" for this panel,
+     * which is const_len(2452)*2 @ code_len(31998)*2 -- and 63996 + 4904
+     * lands exactly on the end of the firmware blob.
      */
-    pram_app_size = (u32)(((u16)buf[FTS_APP_INFO_OFFSET + 0] << 8)
-                          + buf[FTS_APP_INFO_OFFSET + 1]);
+    if (upg->setting_nf->half_length)
+        pram_app_size = (u32)(((u16)buf[FTS_APP_INFO_OFFSET + 0] << 8)
+                              + buf[FTS_APP_INFO_OFFSET + 1]) * 2;
+    else
+        pram_app_size = (u32)(((u16)buf[FTS_APP_INFO_OFFSET + 0] << 8)
+                              + buf[FTS_APP_INFO_OFFSET + 1]);
 
-    /*
-     * Where the DRAM const block starts inside the fw file.
-     *
-     * The fw file is a flash image:
-     *   Bank0 [0x00000..0x0FFFF] : app1 PRAM code (code_len bytes) + 0xFF pad
-     *   Bank1 [0x10000..0x1E503] : app2 flash image; it has its own app-info
-     *                              header at 0x10100 (code_len=58628, which
-     *                              lands exactly on the last non-0xFF byte).
-     *
-     * The PRAM code_len (61732) therefore points at 0xFF padding, not at the
-     * DRAM const data.  The correct const offset is one of the bank1 positions
-     * and cannot be derived reliably from the header alone, so the caller
-     * probes a small candidate list and keeps whichever one actually boots the
-     * IC (see fts_fw_write_start).  ECC cannot tell us: it only proves the chip
-     * received the bytes we sent, not that they were the right bytes.
-     */
-    if (fw_offset > len) {
-        FTS_ERROR("dram offset 0x%x beyond fw len %d", fw_offset, len);
+    if (pram_app_size >= len) {
+        FTS_ERROR("dram offset %d beyond fw len %d", pram_app_size, len);
         return -EINVAL;
     }
-    dram_buf = buf + fw_offset;
-    if (dram_size > (len - fw_offset))
-        dram_size = len - fw_offset;
-    FTS_INFO("dram buf length in fact:%d, offset:0x%x (pram code_len:%d)",
-             dram_size, fw_offset, pram_app_size);
+    dram_buf = buf + pram_app_size;
+    if (dram_size > (len - pram_app_size))
+        dram_size = len - pram_app_size;
+    FTS_INFO("dram buf length in fact:%d,offset:%d", dram_size, pram_app_size);
     /* write pram */
     ret = fts_dpram_write(dram_start_addr, dram_buf, dram_size, false);
     if (ret < 0) {
@@ -669,17 +660,8 @@ static int fts_pram_start(void)
 static int fts_fw_write_start(const u8 *buf, u32 len, bool need_reset)
 {
     int ret = 0;
-    int k = 0;
     u8 chip_id = 0;
     struct fts_upgrade *upg = fwupgrade;
-    /*
-     * Candidate file offsets for the DRAM const block, most likely first.
-     * 0x16000 is app2_offset from the FT8720M upgrade setting (90112);
-     * 0x10000 is the bank1 base; 0x10100 is just past bank1's own header.
-     * The IC is the only authority on which one is right, so each candidate
-     * is tried and then verified by reading the chip id in app mode.
-     */
-    static const u32 dram_off_try[] = { 0x16000, 0x10000, 0x10100 };
 
     FTS_INFO("begin to write and start fw(bin len:%d)", len);
     if (!upg || !upg->ts_data || !upg->setting_nf) {
@@ -689,66 +671,56 @@ static int fts_fw_write_start(const u8 *buf, u32 len, bool need_reset)
 
     upg->ts_data->fw_is_running = false;
 
-    for (k = 0; k < (int)ARRAY_SIZE(dram_off_try); k++) {
-        if (need_reset || (k > 0)) {
-            /* enter into boot environment */
-            ret = fts_enter_into_boot();
-            if (ret < 0) {
-                FTS_ERROR("enter into boot environment fail");
-                return ret;
-            }
-        }
-
-        /* write pram */
-        ret = fts_pram_write_ecc(buf, len);
+    if (need_reset) {
+        /* enter into boot environment */
+        ret = fts_enter_into_boot();
         if (ret < 0) {
-            FTS_ERROR("write pram fail");
+            FTS_ERROR("enter into boot environment fail");
             return ret;
         }
-
-        if (upg->setting_nf->drwr_support) {
-            /* write dram */
-            ret = fts_dram_write_ecc(buf, len, dram_off_try[k]);
-            if (ret < 0) {
-                FTS_ERROR("write dram fail");
-                return ret;
-            }
-        }
-
-        /* remap pram and run fw */
-        ret = fts_pram_start();
-        if (ret < 0) {
-            FTS_ERROR("pram start fail");
-            return ret;
-        }
-
-        /*
-         * fts_pram_start() only queues the start command; the chip tells us
-         * whether the app actually came up.  In boot mode the ROM answers
-         * FTS_CMD_READ_ID with the rom id, so a still-passing boot id means
-         * the app never started and this const offset was wrong.
-         */
-        msleep(10);
-        ret = fts_check_bootid();
-        if (ret < 0)
-            FTS_INFO("boot id no longer answers -> app left boot mode");
-
-        chip_id = 0;
-        ret = fts_read_reg(FTS_REG_CHIP_ID, &chip_id);
-        FTS_INFO("verify after pram_start (dram off 0x%x): chip id=0x%02x, ret=%d",
-                 dram_off_try[k], chip_id, ret);
-        if ((ret >= 0) && (chip_id != 0x00) && (chip_id != 0xFF)) {
-            upg->ts_data->fw_is_running = true;
-            FTS_INFO("fw download successfully (dram offset 0x%x)", dram_off_try[k]);
-            return 0;
-        }
-
-        FTS_ERROR("app did not start with dram offset 0x%x, trying next",
-                  dram_off_try[k]);
     }
 
-    FTS_ERROR("fw download failed: no dram offset brought the app up");
-    return -EIO;
+    /* write pram */
+    ret = fts_pram_write_ecc(buf, len);
+    if (ret < 0) {
+        FTS_ERROR("write pram fail");
+        return ret;
+    }
+
+    if (upg->setting_nf->drwr_support) {
+        /* write dram */
+        ret = fts_dram_write_ecc(buf, len);
+        if (ret < 0) {
+            FTS_ERROR("write dram fail");
+            return ret;
+        }
+    }
+
+    /* remap pram and run fw */
+    ret = fts_pram_start();
+    if (ret < 0) {
+        FTS_ERROR("pram start fail");
+        return ret;
+    }
+
+    /*
+     * fts_pram_start() only queues the start command and the original code
+     * reported success unconditionally, which hid a completely dead panel:
+     * every later app-mode read returned status 0xC3 and the chip id read back
+     * 0x00.  Read the chip id here so a bad download fails loudly instead of
+     * being reported as a successful flash.
+     */
+    msleep(10);
+    ret = fts_read_reg(FTS_REG_CHIP_ID, &chip_id);
+    FTS_INFO("verify after pram_start: chip id=0x%02x, ret=%d", chip_id, ret);
+    if ((ret < 0) || (chip_id == 0x00) || (chip_id == 0xFF)) {
+        FTS_ERROR("app did not start (chip id 0x%02x)", chip_id);
+        return -EIO;
+    }
+
+    upg->ts_data->fw_is_running = true;
+    FTS_INFO("fw download successfully");
+    return 0;
 }
 
 static int fts_fw_download(const u8 *buf, u32 len, bool need_reset)
