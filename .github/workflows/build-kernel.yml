@@ -1,6 +1,10 @@
 name: Build Kernel
 
 on:
+  push:
+    paths:
+      - '.trigger_build'
+      - '.github/workflows/build-kernel.yml'
   workflow_dispatch:
     # GitHub allows at most 10 workflow_dispatch inputs, so these are the knobs
     # worth changing per-run. Everything else lives in the config file selected
@@ -89,7 +93,7 @@ on:
 
 # Only one build per ref at a time; a newer run supersedes an older one.
 concurrency:
-  group: build-kernel-${{ github.ref }}-${{ inputs.config }}
+  group: build-kernel-${{ github.ref }}-${{ inputs.config || 'config.env' }}
   cancel-in-progress: true
 
 permissions:
@@ -97,7 +101,7 @@ permissions:
 
 jobs:
   build:
-    name: Build ${{ inputs.config }}
+    name: Build ${{ inputs.config || 'config.env' }}
     runs-on: ubuntu-22.04
     timeout-minutes: 120
     outputs:
@@ -109,20 +113,20 @@ jobs:
       susfs_version: ${{ steps.meta.outputs.susfs_version }}
     env:
       WORKSPACE: ${{ github.workspace }}/kernel_workspace
-      CONFIG_ENV: ${{ inputs.config }}
+      CONFIG_ENV: ${{ inputs.config || 'config.env' }}
       CCACHE_COMPILERCHECK: "%compiler% -dumpmachine; %compiler% -dumpversion"
       CCACHE_NOHASHDIR: "true"
       CCACHE_HARDLINK: "true"
 
       # workflow inputs -> IN_* overrides consumed by scripts/config.sh
-      IN_KSU_VARIANT: ${{ inputs.ksu_variant }}
-      IN_KSU_REF: ${{ inputs.ksu_ref }}
-      IN_KSU_HOOK_MODE: ${{ inputs.hook_mode }}
-      IN_ENABLE_SUSFS: ${{ inputs.susfs }}
-      IN_ENABLE_PATH_UMOUNT: ${{ inputs.path_umount }}
-      IN_ENABLE_HIDE_STUFF: ${{ inputs.hide_stuff }}
-      IN_ENABLE_KPM: ${{ inputs.kpm }}
-      IN_EXTRA_DEFCONFIG: ${{ inputs.extra_defconfig }}
+      IN_KSU_VARIANT: ${{ inputs.ksu_variant || 'config' }}
+      IN_KSU_REF: ${{ inputs.ksu_ref || '' }}
+      IN_KSU_HOOK_MODE: ${{ inputs.hook_mode || 'config' }}
+      IN_ENABLE_SUSFS: ${{ inputs.susfs || 'config' }}
+      IN_ENABLE_PATH_UMOUNT: ${{ inputs.path_umount || 'config' }}
+      IN_ENABLE_HIDE_STUFF: ${{ inputs.hide_stuff || 'config' }}
+      IN_ENABLE_KPM: ${{ inputs.kpm || 'config' }}
+      IN_EXTRA_DEFCONFIG: ${{ inputs.extra_defconfig || '' }}
 
     steps:
       - uses: actions/checkout@v4
