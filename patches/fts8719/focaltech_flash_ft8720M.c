@@ -284,9 +284,22 @@ static int fts_dpram_write(u32 saddr, const u8 *buf, u32 len, bool wpram)
         return -EINVAL;
     }
 
-    if ((len < FTS_MIN_LEN) || (len > FTS_MAX_LEN_FILE)) {
-        FTS_ERROR("fw length(%d) fail", len);
-        return -EINVAL;
+    /*
+     * Stock kernel enforces len <= app2_offset (90112 for FT8720M) to prevent
+     * writing Bank1 content as if it were PRAM. Use app2_offset as upper bound
+     * when writing PRAM (wpram=true), FTS_MAX_LEN_FILE for DRAM.
+     */
+    if (wpram) {
+        if ((len < FTS_MIN_LEN) || (len > upg->setting_nf->app2_offset)) {
+            FTS_ERROR("pram length(%d) fail, max app2_offset=%d",
+                      len, upg->setting_nf->app2_offset);
+            return -EINVAL;
+        }
+    } else {
+        if ((len < FTS_MIN_LEN) || (len > FTS_MAX_LEN_FILE)) {
+            FTS_ERROR("dram length(%d) fail", len);
+            return -EINVAL;
+        }
     }
 
     cmd = vmalloc(packet_size + FTS_CMD_WRITE_LEN + 1);
@@ -508,11 +521,23 @@ static int fts_pram_write_ecc(const u8 *buf, u32 len)
         return -EINVAL;
     }
 
-    if (upg->setting_nf->half_length)
-        pram_app_size = ((u32)code_len) * 2;
-    else
-        pram_app_size = (u32)code_len;
-    FTS_INFO("pram app length in fact:%d", pram_app_size);
+    /*
+     * FT8720M: half_length=1 means the fw header code_len field only stores
+     * Bank 0 (lower 64KB) size. The full PRAM is 16-bit addressed (max 64KB).
+     * Writing code_len*2 bytes would cross the 64KB boundary and wrap around,
+     * overwriting Bank 0 with Bank 1 data and causing ECC mismatch (0x16ea).
+     * Fix: always write exactly code_len bytes (Bank 0 only) to PRAM.
+     * Bank 1 (above app2_offset in fw file) is stored in Flash, not PRAM.
+     */
+    pram_app_size = (u32)code_len;
+    FTS_INFO("pram app length(Bank0 only):%d (half_length=%d)",
+             pram_app_size, upg->setting_nf->half_length);
+
+    /* Sanity: must not exceed 64KB PRAM address space */
+    if (pram_app_size > 0x10000) {
+        FTS_ERROR("pram_app_size(%d) exceeds 64KB PRAM!", pram_app_size);
+        return -EINVAL;
+    }
 
     /* write pram */
     if (upg->setting_nf->spi_pe)
@@ -567,8 +592,15 @@ static int fts_dram_write_ecc(const u8 *buf, u32 len)
     else
         dram_size = (u32)const_len;
 
-    pram_app_size = ((u32)(((u16)buf[FTS_APP_INFO_OFFSET + 0] << 8)
-                           + buf[FTS_APP_INFO_OFFSET + 1])) * 2;
+    /*
+     * pram_app_size here is used only as offset into fw file buffer to find
+     * where DRAM data begins. For FT8720M (half_length=1), Bank0 code_len
+     * bytes are PRAM, Bank0 data ends at code_len offset in file.
+     * app2_offset (90112) marks start of Bank1 in file; DRAM follows PRAM.
+     * Use app2_offset as the file offset for DRAM data start.
+     */
+    pram_app_size = (u32)(((u16)buf[FTS_APP_INFO_OFFSET + 0] << 8)
+                          + buf[FTS_APP_INFO_OFFSET + 1]);
 
     dram_buf = buf + pram_app_size;
     if (len >= pram_app_size && dram_size > (len - pram_app_size))
