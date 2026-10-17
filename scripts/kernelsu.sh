@@ -269,7 +269,13 @@ ksu_hook_configs() {
 		kconf_enable "$defconfig" CONFIG_HAVE_KPROBES
 		kconf_enable "$defconfig" CONFIG_KPROBE_EVENTS
 		kconf_enable "$defconfig" CONFIG_KRETPROBES
-		[ "$variant" = "kernelsu-next" ] && kconf_enable "$defconfig" CONFIG_KSU_KPROBES_HOOK
+		# Must be an `if`, not `[ ... ] && cmd`: when the test is false the
+		# AND-list returns 1, and because it is the last command of this case
+		# arm the function returns 1 too, which aborts the whole build under
+		# `set -e` with no error message at all.
+		if [ "$variant" = "kernelsu-next" ]; then
+			kconf_enable "$defconfig" CONFIG_KSU_KPROBES_HOOK
+		fi
 		;;
 	manual)
 		case "$variant" in
