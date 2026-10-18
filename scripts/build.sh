@@ -116,6 +116,20 @@ EOF
 		cp -a "${REPO_ROOT}/patches/fts8719/." "${fts_dst}/"
 	fi
 
+	# Prebuilt vendor modules (/vendor/lib/modules) were linked against a
+	# stock kernel that has stack protector and CFI enabled.  This build has
+	# CFI compiled out, so wmt_drv.ko -- and therefore bt_drv.ko and
+	# wlan_drv_gen4m.ko -- cannot resolve __cfi_slowpath and fail to load.
+	# That kills Bluetooth and Wi-Fi.  Ship the missing symbols.
+	local compat_src="${REPO_ROOT}/patches/vendor_compat/vendor_module_compat.c"
+	if [ -f "$compat_src" ] && [ -d "${KERNEL_DIR}/kernel" ]; then
+		info "Installing vendor module compatibility symbols (__cfi_slowpath)"
+		cp -f "$compat_src" "${KERNEL_DIR}/kernel/vendor_module_compat.c"
+		if ! grep -q "vendor_module_compat.o" "${KERNEL_DIR}/kernel/Makefile"; then
+			printf '\nobj-y += vendor_module_compat.o\n' >> "${KERNEL_DIR}/kernel/Makefile"
+		fi
+	fi
+
 	# Relax vermagic and symbol CRC checks to ensure all vendor proprietary modules load seamlessly
 	local mod_c="${KERNEL_DIR}/kernel/module.c"
 	if [ -f "$mod_c" ]; then
