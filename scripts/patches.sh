@@ -142,6 +142,89 @@ print("added susfs_def.h include to", path)
 PYEOF
 }
 
+# susfs_repair_ksu_patch KSU_DIR -- the three hunks of
+# 10_enable_susfs_for_ksu.patch that do not match the pinned KernelSU tree.
+#
+# All three are mechanical, and two of them are mandatory:
+#
+#   core_hook.c   void escape_to_root(void) -> void ksu_escape_to_root(void)
+#                 sucompat.c (patched by the same file) declares and calls
+#                 ksu_escape_to_root(), so leaving the old name is a link error.
+#   core_hook.c   setup_selinux(profile->selinux_domain)
+#                                        -> ksu_setup_selinux(...)
+#                 the patch renames the definition in selinux.c, and the call
+#                 site sits in a function KSU has since rewritten, so this hunk
+#                 can never match -- but the rename is still required.
+#   selinux.c     the susfs_* sid helpers. The hunk's trailing context is
+#                 `#define DEVPTS_DOMAIN "u:object_r:ksu_file:s0"` while v0.9.5
+#                 says "devpts", so it rejects at any fuzz. The block is fine
+#                 on its own and is re-inserted above that define, taken
+#                 straight from the reject file the patch just produced.
+susfs_repair_ksu_patch() {
+	local ksu_dir=$1
+	local ch="${ksu_dir}/kernel/core_hook.c"
+	local sc="${ksu_dir}/kernel/selinux/selinux.c"
+
+	[ -f "$ch" ] && [ -f "$sc" ] || {
+		warn "core_hook.c / selinux.c not found under ${ksu_dir}"
+		return 1
+	}
+
+	CH=$ch SC=$sc python3 - <<'PYEOF'
+import os, sys
+
+ch, sc = os.environ["CH"], os.environ["SC"]
+
+
+def edit(path, old, new):
+    s = open(path).read()
+    if new in s:
+        return "already"
+    if old not in s:
+        sys.exit("%s: expected text not found: %r" % (path, old))
+    open(path, "w").write(s.replace(old, new, 1))
+    return "done"
+
+
+print("core_hook.c escape_to_root:",
+      edit(ch, "void escape_to_root(void)", "void ksu_escape_to_root(void)"))
+print("core_hook.c setup_selinux:",
+      edit(ch, "setup_selinux(profile->selinux_domain)",
+              "ksu_setup_selinux(profile->selinux_domain)"))
+
+rej = sc + ".rej"
+s = open(sc).read()
+if "susfs_is_current_ksu_domain" in s:
+    print("selinux.c susfs sid helpers: already")
+else:
+    if not os.path.exists(rej):
+        sys.exit("selinux.c: helpers missing and no .rej to take them from")
+    added = [ln[1:] for ln in open(rej)
+             if ln.startswith("+") and not ln.startswith("+++")]
+    if not added:
+        sys.exit("selinux.c: the reject carries no added lines")
+    anchor = "#define DEVPTS_DOMAIN"
+    idx = s.find(anchor)
+    if idx < 0:
+        sys.exit("selinux.c: no DEVPTS_DOMAIN anchor to insert above")
+    open(sc, "w").write(s[:idx] + "".join(added) + "\n" + s[idx:])
+    print("selinux.c susfs sid helpers: inserted %d lines" % len(added))
+
+for p in (rej, ch + ".rej"):
+    if os.path.exists(p):
+        os.remove(p)
+PYEOF
+
+	local leftover
+	leftover=$(find "$ksu_dir" -name '*.rej' 2>/dev/null || true)
+	if [ -n "$leftover" ]; then
+		local f
+		for f in $leftover; do warn "reject: ${f}"; done
+		return 1
+	fi
+	ok "KernelSU-side SUSFS patch: three hunks repaired by name"
+}
+
 # susfs_filter_patch IN OUT DROP_FDINFO -- drop the sections we patch by hand.
 #
 # Three places in the 4.14 patch assume a tree that is not this one:
@@ -329,7 +412,12 @@ susfs_apply() {
 	elif [ ! -f "$ksu_patch" ]; then
 		warn "branch ${branch} ships no KernelSU/10_enable_susfs_for_ksu.patch; skipping"
 	else
-		( cd "$ksu_dir" && apply_patch "$ksu_patch" 1 ) || {
+		# Three hunks of the KernelSU-side patch assume a slightly older
+		# v0.9.5 snapshot than the tag we pin; apply strictly and repair
+		# those three by name (see susfs_repair_ksu_patch).
+		( cd "$ksu_dir" && patch -p1 --fuzz=0 --force --forward \
+			--no-backup-if-mismatch -i "$ksu_patch" ) >/dev/null 2>&1 || true
+		susfs_repair_ksu_patch "$ksu_dir" || {
 			warn "the KernelSU-side SUSFS patch did not apply."
 			warn "susfs4ksu's non-GKI branches were last updated in early 2025 and still"
 			warn "target the old flat KernelSU layout; modern forks have since moved to a"
