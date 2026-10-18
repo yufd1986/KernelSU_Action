@@ -42,11 +42,11 @@ susfs_branch_for() {
 # susfs_repair_readdir -- put the sus_path readdir guards where they belong.
 #
 # Idempotent: strips every existing guard and re-inserts one at the top of each
-# filldir* body, so a second run changes nothing.
+# filldir* body, so a second run changes nothing. Also restores the
+# susfs_def.h include, which the same rejected hunk carries.
 susfs_repair_readdir() {
 	local f="${KERNEL_DIR}/fs/readdir.c"
 	[ -f "$f" ] || return 0
-	grep -q 'susfs_sus_ino_for_filldir64' "$f" || return 0
 
 	READDIR_C="$f" python3 - <<'PYEOF' || die "failed to repair fs/readdir.c"
 import os, re, sys
@@ -118,6 +118,145 @@ PYEOF
 	ok "fs/readdir.c: sus_path guards re-anchored to the filldir* bodies"
 }
 
+# susfs_add_include FILE AFTER_LINE -- insert the susfs_def.h include block
+# after the given existing include line. Used when the include hunk of the
+# SUSFS patch rejects because the tree has an extra include in the way.
+susfs_add_include() {
+	local f=$1 after=$2
+	[ -f "$f" ] || die "no such file: $f"
+	grep -q '#include <linux/susfs_def.h>' "$f" && return 0
+
+	python3 - "$f" "$after" <<'PYEOF' || die "failed to add the susfs_def.h include to $f"
+import sys
+
+path, after = sys.argv[1], sys.argv[2]
+src = open(path).read()
+if after not in src:
+    sys.exit("anchor not found: %r" % after)
+inc = ("#ifdef CONFIG_KSU_SUSFS_SUS_PATH\n"
+       "#include <linux/susfs_def.h>\n"
+       "#endif\n")
+src = src.replace(after + "\n", after + "\n" + inc, 1)
+open(path, "w").write(src)
+print("added susfs_def.h include to", path)
+PYEOF
+}
+
+# susfs_filter_patch IN OUT DROP_FDINFO -- drop the sections we patch by hand.
+#
+# Three places in the 4.14 patch assume a tree that is not this one:
+#
+#   fs/readdir.c        anchors on `buf->error = verify_dirent_name(...)`;
+#                       MIUI has `buf->error = -EINVAL;`. Dropped -- the four
+#                       guards and the include are re-inserted by
+#                       susfs_repair_readdir(), anchored on the signatures.
+#   fs/notify/fdinfo.c  rewrites inotify_fdinfo() around
+#                       inotify_mark_user_mask(), absent here. Dropped whole
+#                       when the tree lacks it: hunk 1 and 2 must not be
+#                       applied on their own, or show_fdinfo() would call the
+#                       callbacks with three arguments while they still take
+#                       two. The file is self-contained (show_fdinfo is
+#                       static), so skipping it is safe -- it only hides
+#                       inotify watches on sus_path inodes from
+#                       /proc/<pid>/fdinfo, which nothing here relies on.
+#   fs/dcache.c         the include hunk is shifted by an extra
+#                       `#include <linux/kasan.h>`; only that one hunk is
+#                       dropped and susfs_add_include() puts the block in.
+susfs_filter_patch() {
+	local in=$1 out=$2 drop_fdinfo=${3:-0}
+
+	IN=$in OUT=$out DROP_FDINFO=$drop_fdinfo python3 - <<'PYEOF' \
+		|| die "failed to filter $(basename "$in")"
+import os, sys
+
+src, dst = os.environ["IN"], os.environ["OUT"]
+drop_fdinfo = os.environ.get("DROP_FDINFO") == "1"
+lines = open(src, encoding="utf-8", errors="replace").read().split("\n")
+
+sections = []          # (path, header_lines, [hunk_lines, ...])
+i, n = 0, len(lines)
+while i < n:
+    if not lines[i].startswith("diff --git "):
+        i += 1
+        continue
+    path = lines[i].split(" b/")[0][len("diff --git a/"):].strip()
+    header, hunks, i = [], [], i
+    while i < n and not lines[i].startswith("@@"):
+        header.append(lines[i]); i += 1
+    cur = None
+    while i < n and not lines[i].startswith("diff --git "):
+        if lines[i].startswith("@@"):
+            if cur:
+                hunks.append(cur)
+            cur = [lines[i]]
+        elif cur is not None:
+            cur.append(lines[i])
+        else:
+            header.append(lines[i])
+        i += 1
+    if cur:
+        hunks.append(cur)
+    sections.append((path, header, hunks))
+
+out, dropped = [], []
+for path, header, hunks in sections:
+    if path == "fs/readdir.c":
+        dropped.append(path)
+        continue
+    if path == "fs/notify/fdinfo.c" and drop_fdinfo:
+        dropped.append(path + " (no inotify_mark_user_mask)")
+        continue
+    kept = hunks
+    if path == "fs/dcache.c":
+        kept = [h for h in hunks
+                if not any(l.startswith("+") and "susfs_def.h" in l for l in h)]
+        if len(kept) != len(hunks):
+            dropped.append(path + " (include hunk)")
+    if not kept:
+        continue
+    out.extend(header)
+    for h in kept:
+        out.extend(h)
+
+open(dst, "w").write("\n".join(out))
+print("filtered patch: dropped " + "; ".join(dropped))
+PYEOF
+}
+
+# susfs_assert_no_rejects -- after a strict apply there must be no rejects. Any
+# reject means this tree diverges somewhere we have not looked at, and shipping
+# a half-patched kernel is worse than failing the build.
+susfs_assert_no_rejects() {
+	local rej
+	rej=$(find "$KERNEL_DIR/fs" "$KERNEL_DIR/include" "$KERNEL_DIR/kernel" \
+		-name '*.rej' 2>/dev/null || true)
+	if [ -z "$rej" ]; then
+		ok "SUSFS kernel patch applied with zero rejects"
+		return 0
+	fi
+	local f
+	for f in $rej; do
+		warn "reject: ${f}"
+		sed -n '1,40p' "$f" >&2
+	done
+	die "the SUSFS patch left rejects; teach susfs_filter_patch about them"
+}
+
+# apply_susfs_kernel_patch PATCH -- strict apply, zero fuzz, no silent repairs.
+#
+# Deliberately NOT apply_patch(): that falls back to --fuzz=3 when the strict
+# apply fails, and a fuzzy match does not fail loudly -- it drops context lines
+# and lands the hunk at the next plausible spot. On this MIUI tree that put the
+# readdir guard inside SYSCALL_DEFINE3(getdents, ...)'s parameter list (run
+# 39108700947) and the fdinfo block inside a seq_printf() call (39109942958).
+apply_susfs_kernel_patch() {
+	local patch=$1
+
+	( cd "$KERNEL_DIR" && patch -p1 --fuzz=0 --force --forward \
+		--no-backup-if-mismatch -i "$patch" ) >/dev/null 2>&1 || true
+	susfs_assert_no_rejects
+}
+
 susfs_apply() {
 	local repo=${SUSFS_REPO:-https://gitlab.com/simonpunk/susfs4ksu.git}
 	local branch=${SUSFS_BRANCH:-auto}
@@ -159,25 +298,23 @@ susfs_apply() {
 	[ -n "$kernel_patch" ] && [ -f "$kernel_patch" ] \
 		|| die "no 50_add_susfs_in_*.patch found in ${kp}"
 
-	( cd "$KERNEL_DIR" && apply_patch "$kernel_patch" 1 ) \
-		|| die "the SUSFS kernel patch did not apply cleanly.
+	# 2. Patch the kernel itself. The patch is filtered first so that the three
+	#    files this tree diverges on are handled by name rather than by fuzz
+	#    (see susfs_filter_patch), then applied with zero fuzz and zero
+	#    tolerance for rejects.
+	local filtered="${WORKSPACE}/susfs_kernel_filtered.patch"
+	local drop_fdinfo=0
+	grep -q 'inotify_mark_user_mask' "${KERNEL_DIR}/fs/notify/fdinfo.c" 2>/dev/null \
+		|| drop_fdinfo=1
+	susfs_filter_patch "$kernel_patch" "$filtered" "$drop_fdinfo"
+	apply_susfs_kernel_patch "$filtered" \
+		|| die "the SUSFS kernel patch did not apply.
        This usually means SUSFS_BRANCH does not match your kernel. Detected
        kernel ${kver}, used branch '${branch}'."
 
-	# 2b. Repair fs/readdir.c.
-	#
-	# The 4.14 patch inserts a sus_path guard into four filldir* callbacks, and
-	# it anchors on the two lines above `buf->error = verify_dirent_name(...)`.
-	# MIUI trees have a different line there (`buf->error = -EINVAL;`), so the
-	# hunk needs fuzz -- and when `patch` fuzzes it drops context lines and
-	# matches the *next* two-line match it can find, which lands the guard in
-	# the middle of `SYSCALL_DEFINE3(getdents, ...)`'s parameter list. The
-	# result is 20 syntax errors and a dead build (run 39108700947).
-	#
-	# Rather than hope a future patch revision gets the anchor right, strip
-	# every copy of the guard and re-insert it at the top of each callback,
-	# anchored on the function signature -- which is stable across trees.
+	# The two files that are patched by hand instead of by the patch file.
 	susfs_repair_readdir
+	susfs_add_include "${KERNEL_DIR}/fs/dcache.c" '#include <linux/list_lru.h>'
 
 	# 3. Patch the KernelSU side -- but only when the variant does not already
 	#    ship SUSFS support. SukiSU-Ultra's 'builtin' branch, for instance,
