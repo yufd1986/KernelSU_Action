@@ -130,20 +130,89 @@ EOF
 		fi
 	fi
 
-	# Relax vermagic and symbol CRC checks to ensure all vendor proprietary modules load seamlessly
+	# Relax vermagic and symbol CRC checks to ensure all vendor proprietary modules load seamlessly,
+	# and repair the __this_module.init pointer that the vendor toolchain left empty.
 	local mod_c="${KERNEL_DIR}/kernel/module.c"
 	if [ -f "$mod_c" ]; then
-		info "Bypassing module vermagic and CRC strict checks"
-		python3 -c "
-with open('$mod_c', 'r') as f:
+		info "Patching kernel/module.c (vermagic/CRC bypass + vendor init probe)"
+		MOD_C="$mod_c" python3 - <<'PYEOF' || true
+import os
+
+path = os.environ['MOD_C']
+with open(path, 'r') as f:
     s = f.read()
-s = s.replace('!same_magic(modmagic, vermagic, info->index.vers)', '0 /* same_magic bypass */')
-t2 = 'static int check_version(const struct load_info *info,\n\t\t\t const char *symname,\n\t\t\t struct module *mod,\n\t\t\t const s32 *crc)\n{'
-if t2 in s:
-    s = s.replace(t2, t2 + '\n\treturn 1;')
-with open('$mod_c', 'w') as f:
+
+# 1. Accept any vermagic string.
+s = s.replace('!same_magic(modmagic, vermagic, info->index.vers)',
+              '0 /* same_magic bypass */')
+
+# 2. Accept any symbol CRC.
+anchor = ('static int check_version(const struct load_info *info,\n'
+          '\t\t\t const char *symname,\n'
+          '\t\t\t struct module *mod,\n'
+          '\t\t\t const s32 *crc)\n{')
+if anchor in s and 'return 1; /* crc bypass */' not in s:
+    s = s.replace(anchor, anchor + '\n\treturn 1; /* crc bypass */', 1)
+
+# 3. Vendor modules built by the stock toolchain ship an __this_module whose
+#    .init field stays NULL after relocation, so do_init_module() skips their
+#    init_module entirely: wmt_drv never registers /dev/wmtdetect, bt_drv is
+#    never insmod'd and the Bluetooth HAL crash-loops.  Recover the entry point
+#    from the module's own symbol table instead.
+probe = r'''
+/* VENDOR_INIT_PROBE: recover init_module when __this_module.init is NULL. */
+static void kdbg_probe_module_init(struct module *mod, const struct load_info *info)
+{
+	Elf_Shdr *symsec;
+	Elf_Sym *sym;
+	unsigned int i, n;
+	void *defined = NULL;
+	int undef = 0;
+
+	if (!info->index.sym || !info->index.mod)
+		return;
+
+	symsec = &info->sechdrs[info->index.sym];
+	sym = (void *)symsec->sh_addr;
+	n = symsec->sh_size / sizeof(Elf_Sym);
+
+	for (i = 1; i < n; i++) {
+		const char *nm = info->strtab + sym[i].st_name;
+
+		if (strcmp(nm, "init_module"))
+			continue;
+		if (sym[i].st_shndx == SHN_UNDEF)
+			undef = 1;
+		else if (!defined)
+			defined = (void *)sym[i].st_value;
+	}
+
+	pr_info("VENDOR_INIT: %s mod_init=%px sym_init=%px undef=%d this_module_sz=%u sizeof_mod=%u\n",
+		mod->name, (void *)mod->init, defined, undef,
+		(unsigned int)info->sechdrs[info->index.mod].sh_size,
+		(unsigned int)sizeof(struct module));
+
+	if (!mod->init && defined) {
+		pr_warn("VENDOR_INIT: %s init was NULL, using init_module from symtab\n",
+			mod->name);
+		mod->init = (int (*)(void))defined;
+	}
+}
+'''
+if 'VENDOR_INIT_PROBE' not in s:
+    hook = 'static int may_init_module(void)'
+    if hook in s:
+        s = s.replace(hook, probe + '\n' + hook, 1)
+    # info->strtab and the symtab still point into info->hdr, so probe before
+    # free_copy() releases the original module image.
+    call = '\t/* Get rid of temporary copy. */\n\tfree_copy(info);'
+    if call in s:
+        s = s.replace(call,
+                      '\tkdbg_probe_module_init(mod, info);\n\n' + call, 1)
+
+with open(path, 'w') as f:
     f.write(s)
-" || true
+PYEOF
 	fi
 
 	local kver
