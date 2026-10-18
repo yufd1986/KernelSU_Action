@@ -39,6 +39,85 @@ susfs_branch_for() {
 	esac
 }
 
+# susfs_repair_readdir -- put the sus_path readdir guards where they belong.
+#
+# Idempotent: strips every existing guard and re-inserts one at the top of each
+# filldir* body, so a second run changes nothing.
+susfs_repair_readdir() {
+	local f="${KERNEL_DIR}/fs/readdir.c"
+	[ -f "$f" ] || return 0
+	grep -q 'susfs_sus_ino_for_filldir64' "$f" || return 0
+
+	READDIR_C="$f" python3 - <<'PYEOF' || die "failed to repair fs/readdir.c"
+import os, re, sys
+
+path = os.environ["READDIR_C"]
+src = open(path).read()
+
+GUARD_LINES = [
+    "#ifdef CONFIG_KSU_SUSFS_SUS_PATH",
+    "\tif (likely(current->susfs_task_state & TASK_STRUCT_NON_ROOT_USER_APP_PROC) && susfs_sus_ino_for_filldir64(ino)) {",
+    "\t\treturn 0;",
+    "\t}",
+    "#endif",
+]
+
+# 1. Drop every copy the patch left behind, plus the blank line it appends.
+block = re.compile(
+    r"[ \t]*#ifdef CONFIG_KSU_SUSFS_SUS_PATH\n"
+    r"[ \t]*if \(likely\(current->susfs_task_state & TASK_STRUCT_NON_ROOT_USER_APP_PROC\)"
+    r" && susfs_sus_ino_for_filldir64\(ino\)\) \{\n"
+    r"[ \t]*return 0;\n"
+    r"[ \t]*\}\n"
+    r"[ \t]*#endif\n"
+    r"\n?")
+src, removed = block.subn("", src)
+
+# 2. The include block lives in its own hunk; add it if that hunk was dropped.
+if "#include <linux/susfs_def.h>" not in src:
+    anchor = "#include <linux/uaccess.h>\n"
+    if anchor not in src:
+        sys.exit("fs/readdir.c: no '#include <linux/uaccess.h>' anchor")
+    inc = ("#ifdef CONFIG_KSU_SUSFS_SUS_PATH\n"
+           "#include <linux/susfs_def.h>\n"
+           "extern int susfs_sus_ino_for_filldir64(unsigned long ino);\n"
+           "#endif\n")
+    src = src.replace(anchor, anchor + inc, 1)
+
+# 3. Re-insert at the top of each callback body, anchored on the signature.
+#    `ino` is a parameter of all four, so the guard is valid in all four.
+lines = src.split("\n")
+targets = ["static int filldir(", "static int filldir64(",
+           "static int compat_fillonedir(", "static int compat_filldir("]
+body_at = {}
+for t in targets:
+    for j, ln in enumerate(lines):
+        if ln.startswith(t):
+            k = j
+            while k < len(lines) and lines[k].strip() != "{":
+                k += 1
+            if k < len(lines):
+                body_at[t] = k
+            break
+
+missing = [t for t in targets if t not in body_at]
+if missing:
+    sys.exit("fs/readdir.c: could not find body of " + ", ".join(missing))
+
+new, inserted = [], 0
+for j, ln in enumerate(lines):
+    new.append(ln)
+    if j in set(body_at.values()):
+        new.extend(GUARD_LINES)
+        inserted += 1
+
+open(path, "w").write("\n".join(new))
+print("readdir.c: removed %d stale guard(s), inserted %d" % (removed, inserted))
+PYEOF
+
+	ok "fs/readdir.c: sus_path guards re-anchored to the filldir* bodies"
+}
+
 susfs_apply() {
 	local repo=${SUSFS_REPO:-https://gitlab.com/simonpunk/susfs4ksu.git}
 	local branch=${SUSFS_BRANCH:-auto}
@@ -84,6 +163,21 @@ susfs_apply() {
 		|| die "the SUSFS kernel patch did not apply cleanly.
        This usually means SUSFS_BRANCH does not match your kernel. Detected
        kernel ${kver}, used branch '${branch}'."
+
+	# 2b. Repair fs/readdir.c.
+	#
+	# The 4.14 patch inserts a sus_path guard into four filldir* callbacks, and
+	# it anchors on the two lines above `buf->error = verify_dirent_name(...)`.
+	# MIUI trees have a different line there (`buf->error = -EINVAL;`), so the
+	# hunk needs fuzz -- and when `patch` fuzzes it drops context lines and
+	# matches the *next* two-line match it can find, which lands the guard in
+	# the middle of `SYSCALL_DEFINE3(getdents, ...)`'s parameter list. The
+	# result is 20 syntax errors and a dead build (run 39108700947).
+	#
+	# Rather than hope a future patch revision gets the anchor right, strip
+	# every copy of the guard and re-insert it at the top of each callback,
+	# anchored on the function signature -- which is stable across trees.
+	susfs_repair_readdir
 
 	# 3. Patch the KernelSU side -- but only when the variant does not already
 	#    ship SUSFS support. SukiSU-Ultra's 'builtin' branch, for instance,
