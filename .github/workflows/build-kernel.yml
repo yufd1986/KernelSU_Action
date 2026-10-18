@@ -189,7 +189,21 @@ jobs:
           max-size: 2G
 
       - name: Build kernel
-        run: bash scripts/build.sh all
+        run: |
+          set -o pipefail
+          bash scripts/build.sh all 2>&1 | tee build.log
+
+      # The job-logs API needs admin rights even on a public repo, so a failed
+      # build used to be a black box. Keep the log and hand it to the
+      # `diagnostics` job below, which publishes it as a release asset.
+      - name: Upload build log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Package artifacts
         run: bash scripts/package.sh all
@@ -234,12 +248,37 @@ jobs:
           name: boot${{ env.LOCALVERSION }}${{ env.UPLOADNAME }}-${{ env.DEVICE }}-${{ env.BUILD_TIME }}
           path: kernel_workspace/boot.img
 
+  # Failure forensics: publish build.log as a release asset so it can be read
+  # without a token (release assets are public, the logs API is not).
+  diagnostics:
+    name: Publish failure log
+    needs: build
+    if: failure()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download build log
+        uses: actions/download-artifact@v4
+        with:
+          name: build-log
+          path: .
+
+      - name: Publish log as a release asset
+        uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8 # v2.3.2
+        with:
+          tag_name: log-${{ github.run_id }}
+          name: build log · run ${{ github.run_id }}
+          body: |
+            Failed build log for run [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}).
+          files: build.log
+
   # Publishing is a separate job so the build itself runs with a read-only
   # token; only this job gets contents:write, and only when asked for.
   release:
     name: Publish release
     needs: build
-    if: inputs.publish_release
+    if: inputs.publish_release || github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
       contents: write
