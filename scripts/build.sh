@@ -85,9 +85,9 @@ EOF
 		sed -i 's/clock_gettime_return, shift=1/clock_gettime_return shift=1/g' "$vdso_gtod"
 	fi
 
-	# Add missing J22 panel revision 0C driver
+	# Add missing J22 panel revision 0C driver (only for older branches like Q-OSS)
 	local panel_dst="${KERNEL_DIR}/drivers/gpu/drm/panel"
-	if [ -d "$panel_dst" ] && [ -f "${REPO_ROOT}/patches/panel_j22_43_03_0c_vdo.c" ]; then
+	if [ -d "$panel_dst" ] && [ ! -f "${panel_dst}/panel_j22_43_03_0c_vdo.c" ] && [ -f "${REPO_ROOT}/patches/panel_j22_43_03_0c_vdo.c" ]; then
 		info "Installing J22 0C panel driver"
 		cp "${REPO_ROOT}/patches/panel_j22_43_03_0c_vdo.c" "${panel_dst}/"
 		if ! grep -q "CONFIG_DRM_PANEL_J22_43_03_0C_VDO" "${panel_dst}/Makefile"; then
@@ -106,13 +106,10 @@ EOF
 		fi
 	fi
 
-	# Replace fts8719 touch driver with updated version supporting FT8720M / Panel 0C
+	# Replace fts8719 touch driver with updated version supporting FT8720M / Panel 0C (only if missing)
 	local fts_dst="${KERNEL_DIR}/drivers/input/touchscreen/fts8719"
-	if [ -d "$fts_dst" ] && [ -d "${REPO_ROOT}/patches/fts8719" ]; then
+	if [ -d "$fts_dst" ] && [ ! -f "${fts_dst}/focaltech_flash_ft8720M.c" ] && [ -d "${REPO_ROOT}/patches/fts8719" ]; then
 		info "Installing updated fts8719 touch driver (FT8720M support)"
-		# "src/." merges into the existing tree. Using "src/*" would nest
-		# subdirectories that already exist in the kernel (include/, 
-		# focaltech_test/) one level too deep instead of overwriting them.
 		cp -a "${REPO_ROOT}/patches/fts8719/." "${fts_dst}/"
 	fi
 
