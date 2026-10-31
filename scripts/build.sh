@@ -106,9 +106,9 @@ EOF
 		fi
 	fi
 
-	# Replace fts8719 touch driver with updated version supporting FT8720M / Panel 0C (only if missing)
+	# Replace fts8719 touch driver with updated version supporting FT8720M / Panel 0C
 	local fts_dst="${KERNEL_DIR}/drivers/input/touchscreen/fts8719"
-	if [ -d "$fts_dst" ] && [ ! -f "${fts_dst}/focaltech_flash_ft8720M.c" ] && [ -d "${REPO_ROOT}/patches/fts8719" ]; then
+	if [ -d "$fts_dst" ] && [ -d "${REPO_ROOT}/patches/fts8719" ]; then
 		info "Installing updated fts8719 touch driver (FT8720M support)"
 		cp -a "${REPO_ROOT}/patches/fts8719/." "${fts_dst}/"
 	fi
