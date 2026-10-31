@@ -37,10 +37,11 @@ prepare_defconfig() {
 	find "${KERNEL_DIR}" -type f \( -name "Makefile*" -o -name "Kbuild*" \) -exec sed -i 's/[[:space:]]-Werror[[:space:]]/ /g; s/[[:space:]]-Werror$/ /g' {} + 2>/dev/null || true
 	[ -f "${KERNEL_DIR}/mm/Makefile" ] && sed -i 's/-Werror//g' "${KERNEL_DIR}/mm/Makefile"
 
-	# Fix Makefile for modern GCC & Clang: add -fcommon to HOSTCFLAGS, -gdwarf-4, -Wno-unused-but-set-variable, -fno-builtin-stpcpy to KBUILD_CFLAGS
+	# Fix Makefile for Clang 11: add -fcommon to HOSTCFLAGS, -gdwarf-4, -fno-builtin-stpcpy to KBUILD_CFLAGS, and remove -Werror=unknown-warning-option
 	if [ -f "${KERNEL_DIR}/Makefile" ]; then
 		sed -i 's/HOSTCFLAGS   :=/HOSTCFLAGS   := -fcommon /' "${KERNEL_DIR}/Makefile"
-		sed -i 's/KBUILD_CFLAGS   :=/KBUILD_CFLAGS   := -gdwarf-4 -Wno-unused-but-set-variable -fno-builtin-stpcpy /' "${KERNEL_DIR}/Makefile"
+		sed -i 's/KBUILD_CFLAGS   :=/KBUILD_CFLAGS   := -gdwarf-4 -fno-builtin-stpcpy /' "${KERNEL_DIR}/Makefile"
+		sed -i 's/-Werror=unknown-warning-option//g' "${KERNEL_DIR}/Makefile"
 	fi
 
 	# Fix stpcpy for Clang: add implementation to lib/string.c and declaration to include/linux/string.h if missing
